@@ -15,6 +15,7 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
+    unoptimized: true, // Temporary: bypass image optimization to test direct image loading
     remotePatterns: [
       {
         protocol: "http",
