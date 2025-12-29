@@ -62,23 +62,23 @@ export default async function seedDemoData({ container }: ExecArgs) {
   const salesChannelModuleService = container.resolve(Modules.SALES_CHANNEL);
   const storeModuleService = container.resolve(Modules.STORE);
 
-  const countries = ["gb", "de", "dk", "se", "fr", "es", "it"];
+  // 31 North serves worldwide with focus on US/EU markets
+  const countries = ["us", "gb", "de", "fr", "ca", "au", "jp", "cn", "sg"];
 
-  logger.info("Seeding store data...");
+  logger.info("Seeding 31 North store data...");
   const [store] = await storeModuleService.listStores();
   let defaultSalesChannel = await salesChannelModuleService.listSalesChannels({
-    name: "Default Sales Channel",
+    name: "31 North Store",
   });
 
   if (!defaultSalesChannel.length) {
-    // create the default sales channel
     const { result: salesChannelResult } = await createSalesChannelsWorkflow(
       container
     ).run({
       input: {
         salesChannelsData: [
           {
-            name: "Default Sales Channel",
+            name: "31 North Store",
           },
         ],
       },
@@ -91,11 +91,14 @@ export default async function seedDemoData({ container }: ExecArgs) {
       store_id: store.id,
       supported_currencies: [
         {
-          currency_code: "eur",
+          currency_code: "usd",
           is_default: true,
         },
         {
-          currency_code: "usd",
+          currency_code: "eur",
+        },
+        {
+          currency_code: "cny",
         },
       ],
     },
@@ -110,19 +113,37 @@ export default async function seedDemoData({ container }: ExecArgs) {
     },
   });
   logger.info("Seeding region data...");
-  const { result: regionResult } = await createRegionsWorkflow(container).run({
+  
+  // Create US Region
+  const { result: usRegionResult } = await createRegionsWorkflow(container).run({
     input: {
       regions: [
         {
-          name: "Europe",
-          currency_code: "eur",
-          countries,
+          name: "United States",
+          currency_code: "usd",
+          countries: ["us"],
           payment_providers: ["pp_system_default"],
         },
       ],
     },
   });
-  const region = regionResult[0];
+  const usRegion = usRegionResult[0];
+
+  // Create International Region
+  const { result: intlRegionResult } = await createRegionsWorkflow(container).run({
+    input: {
+      regions: [
+        {
+          name: "International",
+          currency_code: "usd",
+          countries: ["gb", "de", "fr", "ca", "au", "jp", "cn", "sg"],
+          payment_providers: ["pp_system_default"],
+        },
+      ],
+    },
+  });
+  const intlRegion = intlRegionResult[0];
+  
   logger.info("Finished seeding regions.");
 
   logger.info("Seeding tax regions...");
@@ -141,11 +162,11 @@ export default async function seedDemoData({ container }: ExecArgs) {
     input: {
       locations: [
         {
-          name: "European Warehouse",
+          name: "31 North Artisan Warehouse",
           address: {
-            city: "Copenhagen",
-            country_code: "DK",
-            address_1: "",
+            city: "Suzhou",
+            country_code: "CN",
+            address_1: "Jiangsu Province",
           },
         },
       ],
@@ -183,7 +204,7 @@ export default async function seedDemoData({ container }: ExecArgs) {
         input: {
           data: [
             {
-              name: "Default Shipping Profile",
+              name: "31 North Shipping",
               type: "default",
             },
           ],
@@ -193,41 +214,15 @@ export default async function seedDemoData({ container }: ExecArgs) {
   }
 
   const fulfillmentSet = await fulfillmentModuleService.createFulfillmentSets({
-    name: "European Warehouse delivery",
+    name: "Worldwide Artisan Delivery",
     type: "shipping",
     service_zones: [
       {
-        name: "Europe",
-        geo_zones: [
-          {
-            country_code: "gb",
-            type: "country",
-          },
-          {
-            country_code: "de",
-            type: "country",
-          },
-          {
-            country_code: "dk",
-            type: "country",
-          },
-          {
-            country_code: "se",
-            type: "country",
-          },
-          {
-            country_code: "fr",
-            type: "country",
-          },
-          {
-            country_code: "es",
-            type: "country",
-          },
-          {
-            country_code: "it",
-            type: "country",
-          },
-        ],
+        name: "Worldwide",
+        geo_zones: countries.map(code => ({
+          country_code: code,
+          type: "country" as const,
+        })),
       },
     ],
   });
@@ -244,79 +239,69 @@ export default async function seedDemoData({ container }: ExecArgs) {
   await createShippingOptionsWorkflow(container).run({
     input: [
       {
-        name: "Standard Shipping",
+        name: "Standard International",
         price_type: "flat",
         provider_id: "manual_manual",
         service_zone_id: fulfillmentSet.service_zones[0].id,
         shipping_profile_id: shippingProfile.id,
         type: {
           label: "Standard",
-          description: "Ship in 2-3 days.",
+          description: "Tracked shipping via postal service. 14-21 business days.",
           code: "standard",
         },
         prices: [
-          {
-            currency_code: "usd",
-            amount: 10,
-          },
-          {
-            currency_code: "eur",
-            amount: 10,
-          },
-          {
-            region_id: region.id,
-            amount: 10,
-          },
+          { currency_code: "usd", amount: 2500 },
+          { currency_code: "eur", amount: 2300 },
+          { region_id: usRegion.id, amount: 2500 },
+          { region_id: intlRegion.id, amount: 2500 },
         ],
         rules: [
-          {
-            attribute: "enabled_in_store",
-            value: "true",
-            operator: "eq",
-          },
-          {
-            attribute: "is_return",
-            value: "false",
-            operator: "eq",
-          },
+          { attribute: "enabled_in_store", value: "true", operator: "eq" },
+          { attribute: "is_return", value: "false", operator: "eq" },
         ],
       },
       {
-        name: "Express Shipping",
+        name: "Express International",
         price_type: "flat",
         provider_id: "manual_manual",
         service_zone_id: fulfillmentSet.service_zones[0].id,
         shipping_profile_id: shippingProfile.id,
         type: {
           label: "Express",
-          description: "Ship in 24 hours.",
+          description: "Fast tracked shipping via DHL/FedEx. 5-7 business days.",
           code: "express",
         },
         prices: [
-          {
-            currency_code: "usd",
-            amount: 10,
-          },
-          {
-            currency_code: "eur",
-            amount: 10,
-          },
-          {
-            region_id: region.id,
-            amount: 10,
-          },
+          { currency_code: "usd", amount: 6500 },
+          { currency_code: "eur", amount: 6000 },
+          { region_id: usRegion.id, amount: 6500 },
+          { region_id: intlRegion.id, amount: 6500 },
         ],
         rules: [
-          {
-            attribute: "enabled_in_store",
-            value: "true",
-            operator: "eq",
-          },
-          {
-            attribute: "is_return",
-            value: "false",
-            operator: "eq",
-          },
+          { attribute: "enabled_in_store", value: "true", operator: "eq" },
+          { attribute: "is_return", value: "false", operator: "eq" },
+        ],
+      },
+      {
+        name: "Premium White Glove",
+        price_type: "flat",
+        provider_id: "manual_manual",
+        service_zone_id: fulfillmentSet.service_zones[0].id,
+        shipping_profile_id: shippingProfile.id,
+        type: {
+          label: "Premium",
+          description: "Insured shipping with signature. Ideal for high-value items. 7-10 business days.",
+          code: "premium",
+        },
+        prices: [
+          { currency_code: "usd", amount: 12000 },
+          { currency_code: "eur", amount: 11000 },
+          { region_id: usRegion.id, amount: 12000 },
+          { region_id: intlRegion.id, amount: 12000 },
+        ],
+        rules: [
+          { attribute: "enabled_in_store", value: "true", operator: "eq" },
+          { attribute: "is_return", value: "false", operator: "eq" },
         ],
       },
     ],
@@ -338,7 +323,7 @@ export default async function seedDemoData({ container }: ExecArgs) {
     input: {
       api_keys: [
         {
-          title: "Webshop",
+          title: "31 North Storefront",
           type: "publishable",
           created_by: "",
         },
@@ -355,7 +340,7 @@ export default async function seedDemoData({ container }: ExecArgs) {
   });
   logger.info("Finished seeding publishable API key data.");
 
-  logger.info("Seeding product data...");
+  logger.info("Seeding 31 North product categories...");
 
   const { result: categoryResult } = await createProductCategoriesWorkflow(
     container
@@ -363,522 +348,317 @@ export default async function seedDemoData({ container }: ExecArgs) {
     input: {
       product_categories: [
         {
-          name: "Shirts",
+          name: "Lacquerware",
+          handle: "lacquerware",
           is_active: true,
         },
         {
-          name: "Sweatshirts",
+          name: "Silk Embroidery",
+          handle: "silk-embroidery",
           is_active: true,
         },
         {
-          name: "Pants",
+          name: "Blue Calico",
+          handle: "blue-calico",
           is_active: true,
         },
         {
-          name: "Merch",
+          name: "Ceramics",
+          handle: "ceramics",
           is_active: true,
         },
       ],
     },
   });
 
+  logger.info("Seeding 31 North products...");
+
   await createProductsWorkflow(container).run({
     input: {
       products: [
+        // ============================================
+        // Lacquerware Products
+        // ============================================
         {
-          title: "Medusa T-Shirt",
-          category_ids: [
-            categoryResult.find((cat) => cat.name === "Shirts")!.id,
-          ],
-          description:
-            "Reimagine the feeling of a classic T-shirt. With our cotton T-shirts, everyday essentials no longer have to be ordinary.",
-          handle: "t-shirt",
-          weight: 400,
+          title: "Phoenix Rising Lacquer Vase",
+          handle: "phoenix-rising-lacquer-vase",
+          category_ids: [categoryResult.find((cat) => cat.name === "Lacquerware")!.id],
+          description: "A stunning bodiless lacquerware vase featuring a phoenix motif in gold leaf inlay. Created using traditional Fuzhou techniques.",
+          weight: 380,
           status: ProductStatus.PUBLISHED,
           shipping_profile_id: shippingProfile.id,
+          thumbnail: "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=800",
           images: [
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/tee-black-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/tee-black-back.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/tee-white-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/tee-white-back.png",
-            },
+            { url: "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=800" },
           ],
-          options: [
-            {
-              title: "Size",
-              values: ["S", "M", "L", "XL"],
-            },
-            {
-              title: "Color",
-              values: ["Black", "White"],
-            },
-          ],
+          metadata: {
+            featured: "true",
+            materials: "Natural lacquer (urushi), Hemp cloth base, 24K gold leaf, Natural mineral pigments",
+            dimensions: "H: 35cm, Diameter: 18cm",
+            weight: "380g",
+            care_instructions: "Dust with soft cloth. Avoid direct sunlight and extreme temperature changes.",
+            artisan_id: "artisan-1",
+            long_description: "This extraordinary vase represents the pinnacle of Fuzhou lacquerware craftsmanship. The 'bodiless' technique involves applying over 100 layers of lacquer to a clay form, which is then carefully removed, leaving a vessel of pure lacquer that is both incredibly light and remarkably durable.",
+          },
+          options: [{ title: "Size", values: ["Standard"] }],
           variants: [
             {
-              title: "S / Black",
-              sku: "SHIRT-S-BLACK",
-              options: {
-                Size: "S",
-                Color: "Black",
-              },
+              title: "Standard",
+              sku: "LAC-PHX-001",
+              options: { Size: "Standard" },
               prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "S / White",
-              sku: "SHIRT-S-WHITE",
-              options: {
-                Size: "S",
-                Color: "White",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M / Black",
-              sku: "SHIRT-M-BLACK",
-              options: {
-                Size: "M",
-                Color: "Black",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M / White",
-              sku: "SHIRT-M-WHITE",
-              options: {
-                Size: "M",
-                Color: "White",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L / Black",
-              sku: "SHIRT-L-BLACK",
-              options: {
-                Size: "L",
-                Color: "Black",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L / White",
-              sku: "SHIRT-L-WHITE",
-              options: {
-                Size: "L",
-                Color: "White",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL / Black",
-              sku: "SHIRT-XL-BLACK",
-              options: {
-                Size: "XL",
-                Color: "Black",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL / White",
-              sku: "SHIRT-XL-WHITE",
-              options: {
-                Size: "XL",
-                Color: "White",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
+                { amount: 280000, currency_code: "usd" },
+                { amount: 260000, currency_code: "eur" },
               ],
             },
           ],
-          sales_channels: [
-            {
-              id: defaultSalesChannel[0].id,
-            },
-          ],
+          sales_channels: [{ id: defaultSalesChannel[0].id }],
         },
         {
-          title: "Medusa Sweatshirt",
-          category_ids: [
-            categoryResult.find((cat) => cat.name === "Sweatshirts")!.id,
-          ],
-          description:
-            "Reimagine the feeling of a classic sweatshirt. With our cotton sweatshirt, everyday essentials no longer have to be ordinary.",
-          handle: "sweatshirt",
-          weight: 400,
+          title: "Cherry Blossom Jewelry Box",
+          handle: "cherry-blossom-lacquer-box",
+          category_ids: [categoryResult.find((cat) => cat.name === "Lacquerware")!.id],
+          description: "An elegant jewelry box with delicate cherry blossom design in mother-of-pearl inlay on deep vermillion lacquer.",
+          weight: 450,
           status: ProductStatus.PUBLISHED,
           shipping_profile_id: shippingProfile.id,
+          thumbnail: "https://images.unsplash.com/photo-1513519245088-0e12902e35a6?w=800",
           images: [
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/sweatshirt-vintage-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/sweatshirt-vintage-back.png",
-            },
+            { url: "https://images.unsplash.com/photo-1513519245088-0e12902e35a6?w=800" },
           ],
-          options: [
-            {
-              title: "Size",
-              values: ["S", "M", "L", "XL"],
-            },
-          ],
+          metadata: {
+            featured: "true",
+            materials: "Natural lacquer, Wooden core, Mother-of-pearl, Silk velvet lining",
+            dimensions: "L: 20cm, W: 15cm, H: 8cm",
+            artisan_id: "artisan-1",
+          },
+          options: [{ title: "Size", values: ["Standard"] }],
           variants: [
             {
-              title: "S",
-              sku: "SWEATSHIRT-S",
-              options: {
-                Size: "S",
-              },
+              title: "Standard",
+              sku: "LAC-BOX-002",
+              options: { Size: "Standard" },
               prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M",
-              sku: "SWEATSHIRT-M",
-              options: {
-                Size: "M",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L",
-              sku: "SWEATSHIRT-L",
-              options: {
-                Size: "L",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL",
-              sku: "SWEATSHIRT-XL",
-              options: {
-                Size: "XL",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
+                { amount: 68000, currency_code: "usd" },
+                { amount: 63000, currency_code: "eur" },
               ],
             },
           ],
-          sales_channels: [
+          sales_channels: [{ id: defaultSalesChannel[0].id }],
+        },
+
+        // ============================================
+        // Silk Embroidery Products
+        // ============================================
+        {
+          title: "Double-Sided Koi Embroidery Screen",
+          handle: "double-sided-koi-embroidery",
+          category_ids: [categoryResult.find((cat) => cat.name === "Silk Embroidery")!.id],
+          description: "A masterpiece of Su embroidery: two different koi fish visible on each side of translucent silk, framed in rosewood.",
+          weight: 2500,
+          status: ProductStatus.PUBLISHED,
+          shipping_profile_id: shippingProfile.id,
+          thumbnail: "https://images.unsplash.com/photo-1582562124811-c09040d0a901?w=800",
+          images: [
+            { url: "https://images.unsplash.com/photo-1582562124811-c09040d0a901?w=800" },
+          ],
+          metadata: {
+            featured: "true",
+            materials: "Mulberry silk threads, Transparent silk base, Rosewood frame, Natural dyes",
+            dimensions: "Frame: 45cm x 35cm, Embroidery: 30cm x 25cm",
+            artisan_id: "artisan-2",
+            long_description: "This remarkable piece showcases the pinnacle of Suzhou embroidery: the double-sided technique where two completely different images appear on opposite sides of a single layer of translucent silk. Master Liu Xiaoming spent eight months creating this piece.",
+          },
+          options: [{ title: "Size", values: ["Standard"] }],
+          variants: [
             {
-              id: defaultSalesChannel[0].id,
+              title: "Standard",
+              sku: "EMB-KOI-001",
+              options: { Size: "Standard" },
+              prices: [
+                { amount: 450000, currency_code: "usd" },
+                { amount: 420000, currency_code: "eur" },
+              ],
             },
           ],
+          sales_channels: [{ id: defaultSalesChannel[0].id }],
         },
         {
-          title: "Medusa Sweatpants",
-          category_ids: [
-            categoryResult.find((cat) => cat.name === "Pants")!.id,
-          ],
-          description:
-            "Reimagine the feeling of classic sweatpants. With our cotton sweatpants, everyday essentials no longer have to be ordinary.",
-          handle: "sweatpants",
-          weight: 400,
+          title: "Cat Portrait Silk Embroidery",
+          handle: "cat-portrait-embroidery",
+          category_ids: [categoryResult.find((cat) => cat.name === "Silk Embroidery")!.id],
+          description: "A hyper-realistic cat portrait using the famous 'cat fur' embroidery technique, with fur-like texture created stitch by stitch.",
+          weight: 800,
           status: ProductStatus.PUBLISHED,
           shipping_profile_id: shippingProfile.id,
+          thumbnail: "https://images.unsplash.com/photo-1574158622682-e40e69881006?w=800",
           images: [
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/sweatpants-gray-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/sweatpants-gray-back.png",
-            },
+            { url: "https://images.unsplash.com/photo-1574158622682-e40e69881006?w=800" },
           ],
-          options: [
-            {
-              title: "Size",
-              values: ["S", "M", "L", "XL"],
-            },
-          ],
+          metadata: {
+            featured: "false",
+            materials: "Mulberry silk threads, Silk satin base, Bamboo frame",
+            dimensions: "Frame: 40cm x 30cm",
+            artisan_id: "artisan-2",
+          },
+          options: [{ title: "Size", values: ["Standard"] }],
           variants: [
             {
-              title: "S",
-              sku: "SWEATPANTS-S",
-              options: {
-                Size: "S",
-              },
+              title: "Standard",
+              sku: "EMB-CAT-001",
+              options: { Size: "Standard" },
               prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M",
-              sku: "SWEATPANTS-M",
-              options: {
-                Size: "M",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L",
-              sku: "SWEATPANTS-L",
-              options: {
-                Size: "L",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL",
-              sku: "SWEATPANTS-XL",
-              options: {
-                Size: "XL",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
+                { amount: 180000, currency_code: "usd" },
+                { amount: 165000, currency_code: "eur" },
               ],
             },
           ],
-          sales_channels: [
+          sales_channels: [{ id: defaultSalesChannel[0].id }],
+        },
+
+        // ============================================
+        // Blue Calico Products
+        // ============================================
+        {
+          title: "Phoenix Tail Table Runner",
+          handle: "phoenix-tail-table-runner",
+          category_ids: [categoryResult.find((cat) => cat.name === "Blue Calico")!.id],
+          description: "Hand-printed blue calico table runner featuring the traditional 'phoenix tail' pattern, naturally dyed with indigo.",
+          weight: 200,
+          status: ProductStatus.PUBLISHED,
+          shipping_profile_id: shippingProfile.id,
+          thumbnail: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800",
+          images: [
+            { url: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800" },
+          ],
+          metadata: {
+            featured: "true",
+            materials: "100% cotton, Natural indigo dye, Lime resist paste",
+            dimensions: "L: 180cm, W: 35cm",
+            care_instructions: "Hand wash in cold water. Dry flat away from direct sunlight.",
+            artisan_id: "artisan-3",
+          },
+          options: [{ title: "Size", values: ["Standard"] }],
+          variants: [
             {
-              id: defaultSalesChannel[0].id,
+              title: "Standard",
+              sku: "CAL-RUN-001",
+              options: { Size: "Standard" },
+              prices: [
+                { amount: 18000, currency_code: "usd" },
+                { amount: 16500, currency_code: "eur" },
+              ],
             },
           ],
+          sales_channels: [{ id: defaultSalesChannel[0].id }],
         },
         {
-          title: "Medusa Shorts",
-          category_ids: [
-            categoryResult.find((cat) => cat.name === "Merch")!.id,
+          title: "Fish & Lotus Silk Scarf",
+          handle: "fish-and-lotus-scarf",
+          category_ids: [categoryResult.find((cat) => cat.name === "Blue Calico")!.id],
+          description: "Lightweight silk scarf with traditional fish and lotus pattern, representing abundance and purity.",
+          weight: 80,
+          status: ProductStatus.PUBLISHED,
+          shipping_profile_id: shippingProfile.id,
+          thumbnail: "https://images.unsplash.com/photo-1601925260368-ae2f83cf8b7f?w=800",
+          images: [
+            { url: "https://images.unsplash.com/photo-1601925260368-ae2f83cf8b7f?w=800" },
           ],
-          description:
-            "Reimagine the feeling of classic shorts. With our cotton shorts, everyday essentials no longer have to be ordinary.",
-          handle: "shorts",
+          metadata: {
+            featured: "false",
+            materials: "100% mulberry silk, Natural indigo dye",
+            dimensions: "180cm x 55cm",
+            care_instructions: "Dry clean recommended.",
+            artisan_id: "artisan-3",
+          },
+          options: [{ title: "Size", values: ["Standard"] }],
+          variants: [
+            {
+              title: "Standard",
+              sku: "CAL-SCF-001",
+              options: { Size: "Standard" },
+              prices: [
+                { amount: 22000, currency_code: "usd" },
+                { amount: 20000, currency_code: "eur" },
+              ],
+            },
+          ],
+          sales_channels: [{ id: defaultSalesChannel[0].id }],
+        },
+        {
+          title: "Prosperity Cushion Cover Set",
+          handle: "prosperity-cushion-set",
+          category_ids: [categoryResult.find((cat) => cat.name === "Blue Calico")!.id],
+          description: "Set of two cushion covers featuring the 'continuous prosperity' pattern, a symbol of unending good fortune.",
           weight: 400,
           status: ProductStatus.PUBLISHED,
           shipping_profile_id: shippingProfile.id,
+          thumbnail: "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=800",
           images: [
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/shorts-vintage-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/shorts-vintage-back.png",
-            },
+            { url: "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=800" },
           ],
-          options: [
-            {
-              title: "Size",
-              values: ["S", "M", "L", "XL"],
-            },
-          ],
+          metadata: {
+            featured: "false",
+            materials: "100% cotton, Natural indigo dye, Hidden zipper",
+            dimensions: "45cm x 45cm (set of 2)",
+            care_instructions: "Machine wash cold, gentle cycle.",
+            artisan_id: "artisan-3",
+          },
+          options: [{ title: "Size", values: ["Standard"] }],
           variants: [
             {
-              title: "S",
-              sku: "SHORTS-S",
-              options: {
-                Size: "S",
-              },
+              title: "Standard",
+              sku: "CAL-CSH-001",
+              options: { Size: "Standard" },
               prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M",
-              sku: "SHORTS-M",
-              options: {
-                Size: "M",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L",
-              sku: "SHORTS-L",
-              options: {
-                Size: "L",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL",
-              sku: "SHORTS-XL",
-              options: {
-                Size: "XL",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
+                { amount: 14500, currency_code: "usd" },
+                { amount: 13500, currency_code: "eur" },
               ],
             },
           ],
-          sales_channels: [
+          sales_channels: [{ id: defaultSalesChannel[0].id }],
+        },
+
+        // ============================================
+        // Ceramics Products
+        // ============================================
+        {
+          title: "Cloud Dragon Celadon Tea Set",
+          handle: "cloud-dragon-tea-set",
+          category_ids: [categoryResult.find((cat) => cat.name === "Ceramics")!.id],
+          description: "Five-piece tea set in Longquan celadon with subtle cloud and dragon motifs revealed in the glaze.",
+          weight: 1200,
+          status: ProductStatus.PUBLISHED,
+          shipping_profile_id: shippingProfile.id,
+          thumbnail: "https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?w=800",
+          images: [
+            { url: "https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?w=800" },
+          ],
+          metadata: {
+            featured: "true",
+            materials: "High-fire porcelain, Natural celadon glaze, Food-safe",
+            dimensions: "Teapot: 200ml, Cups: 50ml each",
+            care_instructions: "Dishwasher safe.",
+            long_description: "This tea set represents the sublime art of Longquan celadon, prized for over a thousand years for its jade-like quality. The 'cloud dragon' motif is carved into the clay before glazing, becoming visible only when filled with tea.",
+          },
+          options: [{ title: "Size", values: ["Standard"] }],
+          variants: [
             {
-              id: defaultSalesChannel[0].id,
+              title: "Standard",
+              sku: "CER-TEA-001",
+              options: { Size: "Standard" },
+              prices: [
+                { amount: 85000, currency_code: "usd" },
+                { amount: 79000, currency_code: "eur" },
+              ],
             },
           ],
+          sales_channels: [{ id: defaultSalesChannel[0].id }],
         },
       ],
     },
   });
-  logger.info("Finished seeding product data.");
+  logger.info("Finished seeding 31 North product data.");
 
   logger.info("Seeding inventory levels.");
 
@@ -891,7 +671,7 @@ export default async function seedDemoData({ container }: ExecArgs) {
   for (const inventoryItem of inventoryItems) {
     const inventoryLevel = {
       location_id: stockLocation.id,
-      stocked_quantity: 1000000,
+      stocked_quantity: 10, // Limited artisan quantities
       inventory_item_id: inventoryItem.id,
     };
     inventoryLevels.push(inventoryLevel);
@@ -904,4 +684,8 @@ export default async function seedDemoData({ container }: ExecArgs) {
   });
 
   logger.info("Finished seeding inventory levels data.");
+  logger.info("===========================================");
+  logger.info("31 North seed completed successfully!");
+  logger.info("Publishable API Key: " + publishableApiKey.token);
+  logger.info("===========================================");
 }
