@@ -1,10 +1,8 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework";
-import { ContainerRegistrationKeys, Modules, PaymentCollectionStatus } from "@medusajs/framework/utils";
+import { Modules } from "@medusajs/framework/utils";
 import {
   IOrderModuleService,
   IRegionModuleService,
-  IPaymentModuleService,
-  RemoteLink,
 } from "@medusajs/framework/types";
 
 interface OrderItem {
@@ -98,14 +96,6 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
       },
     }));
 
-    // Get payment module service
-    const paymentModuleService: IPaymentModuleService = req.scope.resolve(
-      Modules.PAYMENT
-    );
-
-    // Use dollar values directly
-    const totalAmount = body.total;
-
     // Create the order using Medusa v2 Order Module
     const order = await orderModuleService.createOrders({
       currency_code: body.currency_code.toLowerCase(),
@@ -145,70 +135,11 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
         merchant_order_id: body.merchant_order_id,
         display_id: displayId,
         payment_provider: "airwallex",
+        payment_status: "paid", // Mark as paid since Airwallex payment succeeded
       },
     });
 
     console.log(`Order created: ${order.id}, display_id: ${displayId}`);
-
-    // Create payment collection and link to order
-    try {
-      // Get remote link service
-      const remoteLink: RemoteLink = req.scope.resolve(
-        ContainerRegistrationKeys.REMOTE_LINK
-      );
-
-      // Create payment collection
-      const paymentCollection = await paymentModuleService.createPaymentCollections({
-        currency_code: body.currency_code.toLowerCase(),
-        amount: totalAmount,
-        region_id: region.id,
-        status: PaymentCollectionStatus.COMPLETED,
-        metadata: {
-          order_id: order.id,
-        },
-      });
-
-      // Create a captured payment
-      await paymentModuleService.createPayments({
-        amount: totalAmount,
-        currency_code: body.currency_code.toLowerCase(),
-        provider_id: "pp_system_default",
-        payment_collection_id: paymentCollection.id,
-        data: {
-          payment_intent_id: body.payment_intent_id,
-          provider: "airwallex",
-        },
-        captured_at: new Date(),
-        metadata: {
-          payment_intent_id: body.payment_intent_id,
-          merchant_order_id: body.merchant_order_id,
-        },
-      });
-
-      // Link payment collection to order using Remote Link
-      await remoteLink.create({
-        [Modules.ORDER]: {
-          order_id: order.id,
-        },
-        [Modules.PAYMENT]: {
-          payment_collection_id: paymentCollection.id,
-        },
-      });
-
-      // Update order metadata
-      await orderModuleService.updateOrders(order.id, {
-        metadata: {
-          ...order.metadata,
-          payment_collection_id: paymentCollection.id,
-          payment_status: "captured",
-        },
-      });
-
-      console.log(`Payment collection created and linked to order: ${paymentCollection.id}`);
-    } catch (paymentError) {
-      // Log but don't fail - order is still created
-      console.error("Failed to create payment collection:", paymentError);
-    }
 
     res.status(201).json({
       success: true,
