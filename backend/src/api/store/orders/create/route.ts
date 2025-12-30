@@ -1,9 +1,10 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework";
-import { Modules, PaymentCollectionStatus } from "@medusajs/framework/utils";
+import { ContainerRegistrationKeys, Modules, PaymentCollectionStatus } from "@medusajs/framework/utils";
 import {
   IOrderModuleService,
   IRegionModuleService,
   IPaymentModuleService,
+  RemoteLink,
 } from "@medusajs/framework/types";
 
 interface OrderItem {
@@ -148,8 +149,14 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
 
     console.log(`Order created: ${order.id}, display_id: ${displayId}`);
 
-    // Create payment collection for the order
+    // Create payment collection and link to order
     try {
+      // Get remote link service
+      const remoteLink: RemoteLink = req.scope.resolve(
+        ContainerRegistrationKeys.REMOTE_LINK
+      );
+
+      // Create payment collection
       const paymentCollection = await paymentModuleService.createPaymentCollections({
         currency_code: body.currency_code.toLowerCase(),
         amount: totalInCents,
@@ -177,7 +184,17 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
         },
       });
 
-      // Link payment collection to order
+      // Link payment collection to order using Remote Link
+      await remoteLink.create({
+        [Modules.ORDER]: {
+          order_id: order.id,
+        },
+        [Modules.PAYMENT]: {
+          payment_collection_id: paymentCollection.id,
+        },
+      });
+
+      // Update order metadata
       await orderModuleService.updateOrders(order.id, {
         metadata: {
           ...order.metadata,
