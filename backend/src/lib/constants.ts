@@ -91,6 +91,13 @@ export const MEILISEARCH_HOST = process.env.MEILISEARCH_HOST;
 export const MEILISEARCH_ADMIN_KEY = process.env.MEILISEARCH_ADMIN_KEY;
 
 /**
+ * (optional) Airwallex configuration for payment processing
+ */
+export const AIRWALLEX_CLIENT_ID = process.env.AIRWALLEX_CLIENT_ID;
+export const AIRWALLEX_API_KEY = process.env.AIRWALLEX_API_KEY;
+export const AIRWALLEX_ENVIRONMENT = process.env.AIRWALLEX_ENVIRONMENT || 'demo'; // 'demo' for sandbox, 'prod' for production
+
+/**
  * Worker mode
  */
 export const WORKER_MODE =
