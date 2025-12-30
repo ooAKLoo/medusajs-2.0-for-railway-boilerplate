@@ -76,6 +76,33 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
     // Generate display_id in format "31N-TIMESTAMP"
     const displayId = body.merchant_order_id || `31N-${Date.now()}`;
 
+    // Check if order already exists with this merchant_order_id (prevent duplicates)
+    try {
+      const [existingOrders] = await orderModuleService.listAndCountOrders({});
+      const existingOrder = existingOrders.find(
+        (o: any) => (o.metadata as any)?.merchant_order_id === body.merchant_order_id
+      );
+
+      if (existingOrder) {
+        console.log(`Order already exists: ${existingOrder.id}`);
+        return res.status(200).json({
+          success: true,
+          order: {
+            id: existingOrder.id,
+            display_id: (existingOrder.metadata as any)?.display_id || existingOrder.id,
+            email: existingOrder.email,
+            currency_code: existingOrder.currency_code,
+            total: body.total,
+            status: "completed",
+            created_at: existingOrder.created_at,
+          },
+        });
+      }
+    } catch (listError) {
+      // If listing fails, proceed with order creation
+      console.log("Could not check for existing orders, proceeding with creation");
+    }
+
     // Create order items with required fields for Medusa v2
     // Note: Medusa stores prices in cents, but for direct order creation we use dollar values
     const orderItems = body.items.map((item, index) => ({
@@ -100,6 +127,7 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
     const order = await orderModuleService.createOrders({
       currency_code: body.currency_code.toLowerCase(),
       email: body.email,
+      status: "completed", // Payment completed via Airwallex
       shipping_address: {
         first_name: body.shipping_address.first_name,
         last_name: body.shipping_address.last_name,
@@ -135,7 +163,6 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
         merchant_order_id: body.merchant_order_id,
         display_id: displayId,
         payment_provider: "airwallex",
-        payment_status: "paid", // Mark as paid since Airwallex payment succeeded
       },
     });
 
@@ -149,7 +176,7 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
         email: order.email,
         currency_code: order.currency_code,
         total: body.total,
-        status: "pending",
+        status: "completed",
         created_at: order.created_at,
       },
     });
