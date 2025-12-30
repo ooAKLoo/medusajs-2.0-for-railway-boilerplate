@@ -79,11 +79,12 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
     const displayId = body.merchant_order_id || `31N-${Date.now()}`;
 
     // Create order items with required fields for Medusa v2
+    // Note: Medusa stores prices in cents, but for direct order creation we use dollar values
     const orderItems = body.items.map((item, index) => ({
       title: item.title,
       subtitle: item.product_title || item.title,
       quantity: item.quantity,
-      unit_price: Math.round(item.unit_price * 100), // Convert to cents
+      unit_price: item.unit_price, // Already in dollars from frontend
       fulfilled_quantity: 0,
       delivered_quantity: 0,
       shipped_quantity: 0,
@@ -102,8 +103,8 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
       Modules.PAYMENT
     );
 
-    // Calculate total in cents
-    const totalInCents = Math.round(body.total * 100);
+    // Use dollar values directly
+    const totalAmount = body.total;
 
     // Create the order using Medusa v2 Order Module
     const order = await orderModuleService.createOrders({
@@ -135,7 +136,7 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
       shipping_methods: [
         {
           name: body.shipping_method,
-          amount: Math.round(body.shipping_total * 100),
+          amount: body.shipping_total,
         },
       ],
       region_id: region.id,
@@ -159,7 +160,7 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
       // Create payment collection
       const paymentCollection = await paymentModuleService.createPaymentCollections({
         currency_code: body.currency_code.toLowerCase(),
-        amount: totalInCents,
+        amount: totalAmount,
         region_id: region.id,
         status: PaymentCollectionStatus.COMPLETED,
         metadata: {
@@ -169,7 +170,7 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
 
       // Create a captured payment
       await paymentModuleService.createPayments({
-        amount: totalInCents,
+        amount: totalAmount,
         currency_code: body.currency_code.toLowerCase(),
         provider_id: "pp_system_default",
         payment_collection_id: paymentCollection.id,
