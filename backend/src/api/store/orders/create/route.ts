@@ -29,14 +29,18 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
     const body = req.body as CreateOrderBody;
     const orderService: IOrderModuleService = req.scope.resolve(Modules.ORDER);
 
-    // 1. 检查订单是否已存在（幂等性）
-    const [existingOrders] = await orderService.listAndCountOrders({});
-    const existing = existingOrders.find(
-      (o: any) => o.metadata?.merchant_order_id === body.merchant_order_id
-    );
+    // 1. 幂等性检查 - 使用数据库过滤而非内存过滤，避免竞态条件
+    const [existingOrders] = await orderService.listAndCountOrders({
+      metadata: { merchant_order_id: body.merchant_order_id },
+    });
 
-    if (existing) {
-      return res.json({ success: true, order: { id: existing.id, display_id: body.merchant_order_id } });
+    if (existingOrders.length > 0) {
+      // 订单已存在，直接返回，避免重复创建
+      return res.json({
+        success: true,
+        order: { id: existingOrders[0].id, display_id: body.merchant_order_id },
+        duplicate: true
+      });
     }
 
     // 2. 创建订单
