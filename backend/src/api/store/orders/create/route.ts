@@ -1,8 +1,9 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework";
-import { Modules } from "@medusajs/framework/utils";
+import { Modules, PaymentCollectionStatus } from "@medusajs/framework/utils";
 import {
   IOrderModuleService,
   IRegionModuleService,
+  IPaymentModuleService,
 } from "@medusajs/framework/types";
 
 interface OrderItem {
@@ -95,6 +96,14 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
       },
     }));
 
+    // Get payment module service
+    const paymentModuleService: IPaymentModuleService = req.scope.resolve(
+      Modules.PAYMENT
+    );
+
+    // Calculate total in cents
+    const totalInCents = Math.round(body.total * 100);
+
     // Create the order using Medusa v2 Order Module
     const order = await orderModuleService.createOrders({
       currency_code: body.currency_code.toLowerCase(),
@@ -134,11 +143,54 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
         merchant_order_id: body.merchant_order_id,
         display_id: displayId,
         payment_provider: "airwallex",
-        payment_status: "captured",
       },
     });
 
     console.log(`Order created: ${order.id}, display_id: ${displayId}`);
+
+    // Create payment collection for the order
+    try {
+      const paymentCollection = await paymentModuleService.createPaymentCollections({
+        currency_code: body.currency_code.toLowerCase(),
+        amount: totalInCents,
+        region_id: region.id,
+        status: PaymentCollectionStatus.COMPLETED,
+        metadata: {
+          order_id: order.id,
+        },
+      });
+
+      // Create a captured payment
+      await paymentModuleService.createPayments({
+        amount: totalInCents,
+        currency_code: body.currency_code.toLowerCase(),
+        provider_id: "pp_system_default",
+        payment_collection_id: paymentCollection.id,
+        data: {
+          payment_intent_id: body.payment_intent_id,
+          provider: "airwallex",
+        },
+        captured_at: new Date(),
+        metadata: {
+          payment_intent_id: body.payment_intent_id,
+          merchant_order_id: body.merchant_order_id,
+        },
+      });
+
+      // Link payment collection to order
+      await orderModuleService.updateOrders(order.id, {
+        metadata: {
+          ...order.metadata,
+          payment_collection_id: paymentCollection.id,
+          payment_status: "captured",
+        },
+      });
+
+      console.log(`Payment collection created and linked to order: ${paymentCollection.id}`);
+    } catch (paymentError) {
+      // Log but don't fail - order is still created
+      console.error("Failed to create payment collection:", paymentError);
+    }
 
     res.status(201).json({
       success: true,
