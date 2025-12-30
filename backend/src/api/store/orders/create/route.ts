@@ -1,6 +1,6 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework";
 import { Modules } from "@medusajs/framework/utils";
-import { IOrderModuleService } from "@medusajs/framework/types";
+import { IOrderModuleService, ICustomerModuleService } from "@medusajs/framework/types";
 
 interface CreateOrderBody {
   email: string;
@@ -57,10 +57,27 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
         });
       }
 
-      // 3. 创建订单
+      // 3. 查找或创建 Customer
+      const customerService: ICustomerModuleService = req.scope.resolve(Modules.CUSTOMER);
+      let customer;
+
+      const [existingCustomers] = await customerService.listAndCountCustomers({ email: body.email });
+      if (existingCustomers.length > 0) {
+        customer = existingCustomers[0];
+      } else {
+        customer = await customerService.createCustomers({
+          email: body.email,
+          first_name: body.shipping_address.first_name,
+          last_name: body.shipping_address.last_name,
+          phone: body.shipping_address.phone,
+        });
+      }
+
+      // 4. 创建订单
       const order = await orderService.createOrders({
         currency_code: body.currency_code.toLowerCase(),
         email: body.email,
+        customer_id: customer.id,
         status: "completed",
         items: body.items.map((item) => ({
           title: item.title,
