@@ -5,7 +5,13 @@ import { IOrderModuleService, ICustomerModuleService } from "@medusajs/framework
 interface CreateOrderBody {
   email: string;
   currency_code: string;
-  items: { title: string; quantity: number; unit_price: number; variant_sku?: string }[];
+  items: {
+    title: string;
+    product_title?: string;
+    quantity: number;
+    unit_price: number;
+    variant_sku?: string;
+  }[];
   shipping_address: {
     first_name: string;
     last_name: string;
@@ -81,6 +87,8 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
         status: "completed",
         items: body.items.map((item) => ({
           title: item.title,
+          product_title: item.product_title || item.title,
+          variant_sku: item.variant_sku,
           quantity: item.quantity,
           unit_price: item.unit_price,
           fulfilled_quantity: 0,
